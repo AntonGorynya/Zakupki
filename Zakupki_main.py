@@ -1,3 +1,5 @@
+#!/usr/bin/python3
+
 import requests
 import pprint
 from lxml import etree
@@ -5,6 +7,7 @@ from lxml.html import fromstring
 from bs4 import BeautifulSoup
 from datetime import date, timedelta
 import xlwt
+import argparse
 
 SITE = "http://www.zakupki.gov.ru"
 SEARCH_URL = "http://www.zakupki.gov.ru/epz/order/extendedsearch/results.html"
@@ -12,13 +15,13 @@ DEAL_URL = "http://www.zakupki.gov.ru/epz/order/" \
            "notice/ea44/view/supplier-results.html"
 
 
-def create_url():
-    week_ago = date.today() - timedelta(weeks=1)
-    #
-    payload = {"searchString": "видеонаблюдение", "fz44": "on",
+def create_url(searchString, updateDateFrom):
+    # week_ago = date.today() - timedelta(weeks=1)
+    #"updateDateFrom": week_ago.strftime('%d.%m.%Y')
+    payload = {"searchString": searchString, "fz44": "on",
                "fz223": "on", "af": "on", "ca": "on",
                "priceFromGeneral": "500000", "recordsPerPage": "_50",
-               "updateDateFrom": week_ago.strftime('%d.%m.%Y'),
+               "updateDateFrom": updateDateFrom,
                "updateDateTo": date.today().strftime('%d.%m.%Y')}
     url = requests.get(SEARCH_URL, params=payload)
     url.encoding = 'UTF-8'
@@ -88,7 +91,7 @@ def extract_distributor(deals_info):
     return deals_info
 
 
-def create_report(deals_info):
+def create_report(deals_info, searchString):
     wb = xlwt.Workbook()
     ws = wb.add_sheet('Report')
     # deals_info[0]["Deal"].append("Winners")
@@ -98,13 +101,25 @@ def create_report(deals_info):
         print()
         for (k, info) in enumerate(deal_info[deal_number]):
             ws.write(j, 1 + k, info)
-    wb.save('./Report.xls')
+    wb.save('./Report {}.xls'.format(searchString))
+
+
+def create_parser():
+    week_ago = date.today() - timedelta(weeks=1)
+    parser = argparse.ArgumentParser(description='zakupki')
+    parser.add_argument('-s', default="видеонаблюдение",
+                        type=str, help="searchString")
+    parser.add_argument('-df', default=week_ago.strftime('%d.%m.%Y'),
+                        type=str, help="%d.%m.%Y")
+    return parser
 
 
 if __name__ == '__main__':
-    print(create_url())
-    response = get_page(create_url())
+    parser = create_parser()
+    args = parser.parse_args()
+    print(create_url(args.s, args.df))
+    response = get_page(create_url(args.s, args.df))
     deals_info = get_info(response)
     # deals_info = extract_distributor(deals_info)
     pprint.pprint(deals_info)
-    create_report(deals_info)
+    create_report(deals_info, args.s)
