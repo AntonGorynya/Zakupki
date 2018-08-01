@@ -26,20 +26,26 @@ KEY_WORDS = ["видеонаблюдение",
 DELAY = 10
 
 
-def create_url(searchString, updateDateFrom, params):
+def create_url(searchString, updateDateFrom, params, pageNumber = 1):
     if params == 'n':
-        payload = {"searchString": searchString, "fz44": "on",
-                   "fz223": "on", "af": "on", "ca": "on",
+        payload = {"searchString": searchString,
+                   "pageNumber": pageNumber,
+                   "fz44": "on", "fz223": "on",
+                   "ppRf615": "on", "af": "on", "ca": "on",
                    "priceFromGeneral": "500000", "recordsPerPage": "_50",
                    "updateDateFrom": updateDateFrom,
-                   "updateDateTo": date.today().strftime('%d.%m.%Y')}
+                   "updateDateTo": date.today().strftime('%d.%m.%Y'),
+                   "districts": "5277336"}
     if params == 'o':
-        payload = {"searchString": searchString, "fz44": "on", "fz223": "on",
-                   "pc": "on",
+        payload = {"searchString": searchString,
+                   "pageNumber": pageNumber,
+                   "fz44": "on", "fz223": "on",
+                   "ppRf615": "on", "pc": "on",
                    "priceFromGeneral": "500000", "recordsPerPage": "_50",
                    "updateDateFrom": updateDateFrom,
-                   "updateDateTo": date.today().strftime('%d.%m.%Y')}
-    logging.info('payload is \n{}'.format(payload))
+                   "updateDateTo": date.today().strftime('%d.%m.%Y'),
+                   "districts": "5277336"}
+    logging.debug('payload is \n{}'.format(payload))
     url = requests.get(SEARCH_URL, params=payload)
     url.encoding = 'UTF-8'
     return url.url
@@ -66,11 +72,13 @@ def get_info(response):
                           class_='registerBox registerBoxBank margBtm20')
     all_records = html.find('p', class_='allRecords')
     if all_records is None:
-        logging.info("noting found")
-        return None
+        logging.debug("noting found")
+        return None, None
     else:
-        logging.info(
-            "total numbers of all_records {}".format(all_records.strong.text))
+        #all_records = fromstring(str(all_records)).xpath('//strong/text()')[0]
+        all_records = int(all_records.strong.text)
+        logging.debug(
+            "total numbers of all_records {}".format(all_records))
     info = [{"Deal": ["Price", "FZ", "Status",
                       "Customer", "Create", "Update", "Link"]}]
     for deal in deals:
@@ -79,8 +87,10 @@ def get_info(response):
             '//td[contains(@class, "descriptTenderTd")]'
             '/dl/dt/a/text()')[0].strip()
         number = ''.join(c for c in number if c.isdigit())
-        number_href = SITE + zakupka_str.xpath(
+        href = zakupka_str.xpath(
             '//td[contains(@class, "descriptTenderTd")]/dl/dt/a/@href')[0]
+        if  href[0] == '/':
+            href = SITE + href
         try:
             # price = zakupka_str.xpath('table/tr/td[1]/'
             #                          'dl/dd[2]/strong/text()')[0].strip()
@@ -88,6 +98,7 @@ def get_info(response):
                 '//td[contains(@class, "tenderTd")]'
                 '/dl/dd[2]/strong/text()')[0].strip()
             price = ''.join(c for c in price if c.isdigit())
+            price = int(price)
         except IndexError:
             price = None
         fz = zakupka_str.xpath(
@@ -96,7 +107,7 @@ def get_info(response):
                                    'or contains(@class, "timeNews") '
                                    'or contains(@class, "checked")'
                                    'and contains(@class, "noWrap")]'
-                                   '/text()')[0].strip()
+                                   '/text()')[0].strip()[:-2]
         customer = zakupka_str.xpath(
             '//dd[contains(@class, "nameOrganization")]'
             '/ul/li/a/text()')[0].strip()
@@ -105,8 +116,8 @@ def get_info(response):
         update = zakupka_str.xpath('//td[contains(@class, "amountTenderTd")]'
                                    '/ul/li[2]/text()')[0].strip()
         info.append({number: [price, fz, status,
-                              customer, create, update, number_href]})
-    return info
+                              customer, create, update, href]})
+    return info, all_records
 
 
 def extract_distributor(deals_info):
@@ -118,7 +129,7 @@ def extract_distributor(deals_info):
                                    DEAL_URL,
                                    params={"regNumber": deal_number}).prepare()
             deal_page = get_page(url.url)
-            logging.info("extract distributor from \n {} \n".format(url.url))
+            logging.debug("extract distributor from \n {} \n".format(url.url))
             time.sleep(DELAY)
             # players = fromstring(str(deal_page.text)).xpath(
             #    '/html/body/div/div/div/div[5]'
@@ -141,7 +152,7 @@ def extract_distributor(deals_info):
 
             players = "{} \n {}".format(player_1, player_2)
             print(players)
-            logging.info('winners {}'.format(players))
+            logging.debug('winners {}'.format(players))
             deal[deal_number].append(players)
     return deals_info
 
@@ -166,6 +177,8 @@ def create_report(wb, deals_info, searchString, type):
     ws.col(0).width = 256*20
     ws.col(3).width = 256 * 20
     ws.col(4).width = 256 * 60
+    ws.col(5).width = 256 * 10
+    ws.col(6).width = 256 * 10
     ws.col(7).width = 256 * 20
     ws.col(8).width = 256 * 60
     style = xlwt.XFStyle()
@@ -177,6 +190,14 @@ def create_report(wb, deals_info, searchString, type):
         ws.write(j, 0, deal_number, style)
         for (k, info) in enumerate(deal_info[deal_number]):
             ws.write(j, 1 + k, info, style)
+
+
+def search(word, dateFrom, mode, pageNumber=1):
+    url = create_url(word, dateFrom, mode, pageNumber)
+    logging.info('send url \n {}'.format(url))
+    response = get_page(url)
+    logging.info("waiting {} sec..... \n".format(DELAY))
+    return response
 
 
 def create_parser():
@@ -199,16 +220,24 @@ if __name__ == '__main__':
     logging.basicConfig(level=logging_level)
     wb = xlwt.Workbook()
     for word in KEY_WORDS:
-        url = create_url(word, args.df, args.mode)
-        logging.info('send url \n {}'.format(url))
-        response = get_page(url)
-        logging.info("waiting {} sec..... \n".format(DELAY))
+        response = search(word, args.df, args.mode)
         time.sleep(DELAY)
-        deals_info = get_info(response)
+        deals_info, number_of_records = get_info(response)
+        logging.info(" Number of record is {}".format(number_of_records))
+        if number_of_records is not None and number_of_records > 50:
+            pageAmount = number_of_records // 50 + 1
+            logging.info("pageAmount is {}".format(pageAmount))
+            for pageNumber in range(1, pageAmount):
+                print(pageNumber)
+                logging.info("new search page  {}".format(pageNumber))
+                response = search(word, args.df, args.mode, pageNumber)
+                time.sleep(DELAY)
+                deals_info += get_info(response)[0]
         if args.mode == 'o' and deals_info is not None:
             logging.info('start extracting distributors........')
             deals_info = extract_distributor(deals_info)
         if deals_info is not None:
             logging.info(deals_info)
             create_report(wb, deals_info, word, args.mode)
+    logging.info('save as ./Report {}_{}.xls'.format(date.today(), args.mode))
     wb.save('./Report {}_{}.xls'.format(date.today(), args.mode))
